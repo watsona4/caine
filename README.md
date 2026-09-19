@@ -2,58 +2,39 @@
 
 **C**reative **A**rtificial **I**ntelligence **N**etworking **E**ntity.
 
-CAINE is a small, honestly-untrained neural network. There is no pretrained
-checkpoint anywhere in this repository -- a fresh CAINE starts as random
-Gaussian noise and produces gibberish. The only way it gets better at
-anything is by talking to it: every message you send is used as an online
-training example (truncated backprop through time) the moment CAINE replies
-to it.
+Two separate things live under the CAINE name in this repo, using
+completely different architectures on purpose -- see below for why.
 
-It is deliberately separate from other projects in this account (e.g.
-[tide-survival](https://github.com/watsona4/tide-survival)) -- CAINE isn't
-part of any particular game or app, it's a standalone entity you can point
-things at.
+## [chatbot/](chatbot) -- an honestly-untrained text model
 
-## What's actually here
+A from-scratch character-level RNN with randomly initialized weights and
+no pretrained checkpoint. It only learns from what you type to it, via
+online backprop through time triggered on every chat exchange, served
+over a small TCP socket. Pure text prediction, nothing else.
 
-- `caine/model.py` -- a single-layer character-level RNN implemented from
-  scratch with `numpy` (no ML framework, no pretrained weights). Forward
-  pass, sampling, and an Adagrad-based online training step.
-- `caine/server.py` -- the "networking" half: a small asyncio TCP server
-  that speaks a line-based protocol. Each line in, CAINE replies, then
-  learns from the exchange before the next line arrives.
-- `caine/cli.py` -- a chat client, usable either against a running server
-  or as a standalone in-process instance for local testing.
+## [minecraft-agent/](minecraft-agent) -- an LLM-driven game agent
 
-State (the model's learned weights) is persisted to disk between runs
-(default `~/.caine/state.npz`) so CAINE actually accumulates whatever
-you've taught it rather than forgetting on restart. Delete that file (or
-pass `--state` pointing elsewhere) to start over from scratch.
+CAINE playing Minecraft Java Edition, aiming to beat the game as fast as
+it can. This is **not** the chatbot's neural net wired into a game --
+that genuinely cannot work: the RNN has no way to represent 3D game state
+as input, no way to map its character-stream output to game actions, and
+its training signal (next-character prediction loss) has nothing to do
+with game progress. Driving a game requires reasoning over structured
+state and choosing from a defined action space, which is what an LLM tool
+loop does well and a from-scratch char-RNN fundamentally cannot. So this
+component uses Claude (via the Anthropic API) as the decision-maker,
+issuing actions through [Mineflayer](https://github.com/PrismarineJS/mineflayer).
 
-## Quickstart
+## Why keep both here
 
-```bash
-pip install -r requirements.txt
+They share the CAINE name and the "creative AI entity" framing, but are
+independent projects with separate dependencies, languages (Python vs.
+Node.js), and READMEs. Each subdirectory documents itself; start there.
 
-# run CAINE as a server
-python -m caine.server --host 127.0.0.1 --port 8765
-
-# in another terminal, talk to it
-python -m caine.cli --connect 127.0.0.1:8765
-
-# or skip the network entirely and chat with an in-process instance
-python -m caine.cli
-```
-
-Expect nonsense at first -- that's the point. It's untrained.
-
-## Development
-
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-pytest
-```
+Also worth noting: CAINE is intentionally decoupled from other projects in
+this account, e.g. [tide-survival](https://github.com/watsona4/tide-survival)
+-- it isn't part of any particular game or app, it's a standalone entity.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE) (applies to the whole repo).

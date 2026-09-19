@@ -1,7 +1,7 @@
 [project]
-name = "caine"
+name = "caine-chatbot"
 version = "0.1.0"
-description = "CAINE -- Creative Artificial Intelligence Networking Entity: an honestly-untrained neural net that only learns from what you tell it."
+description = "CAINE's text chatbot component: an honestly-untrained character-level neural net that only learns from what you tell it."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

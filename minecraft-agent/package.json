@@ -1,0 +1,24 @@
+{
+  "name": "caine-minecraft-agent",
+  "version": "0.1.0",
+  "description": "CAINE's Minecraft component: an LLM-driven agent that plays Minecraft over Mineflayer, aiming to beat the game.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "dotenv": "^16.4.0",
+    "minecraft-data": "^3.78.0",
+    "mineflayer": "^4.23.0",
+    "mineflayer-collectblock": "^1.5.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "vec3": "^0.1.8"
+  },
+  "license": "MIT"
+}

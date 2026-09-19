@@ -8,3 +8,8 @@ build/
 dist/
 .caine/
 *.npz
+
+# Node (minecraft-agent)
+node_modules/
+.env
+npm-debug.log*
