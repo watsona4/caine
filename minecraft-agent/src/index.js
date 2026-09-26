@@ -10,8 +10,6 @@ const Anthropic = require("@anthropic-ai/sdk");
 const { Agent } = require("./agent");
 const { log } = require("./logger");
 
-const DRAGON_NAMES = new Set(["ender_dragon", "enderdragon"]);
-
 function requireEnv(name) {
   const value = process.env[name];
   if (!value) {
@@ -40,14 +38,6 @@ async function main() {
 
     const client = new Anthropic({ apiKey });
     const agent = new Agent({ bot, client, model, maxSteps });
-
-    bot.on("entityDead", (entity) => {
-      const name = entity.name || entity.username || entity.displayName;
-      if (name && DRAGON_NAMES.has(name)) {
-        log("The Ender Dragon has been defeated. CAINE wins.");
-        agent.declareVictory();
-      }
-    });
 
     bot.on("death", () => {
       log("CAINE died and will respawn.");

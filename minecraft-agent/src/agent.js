@@ -31,6 +31,12 @@ outmatched) but keep making forward progress -- the goal is speed, not
 perfect play.`;
 
 const MAX_HISTORY_MESSAGES = 40;
+const DRAGON_NAMES = new Set(["ender_dragon", "enderdragon"]);
+
+/** A plain state-observation message (as opposed to a tool_result array). */
+function isStateObservation(message) {
+  return message.role === "user" && typeof message.content === "string";
+}
 
 class Agent {
   constructor({ bot, client, model = "claude-sonnet-5", maxSteps = Infinity }) {
@@ -51,16 +57,37 @@ class Agent {
     this.stopped = true;
   }
 
+  /** Wired to the bot's entityDead event; ends the run once the dragon falls. */
+  checkVictory(entity) {
+    const name = entity.name || entity.username || entity.displayName;
+    if (name && DRAGON_NAMES.has(name)) {
+      log("The Ender Dragon has been defeated. CAINE wins.");
+      this.declareVictory();
+    }
+  }
+
   pushStateObservation() {
     const state = extractState(this.bot);
     this.messages.push({ role: "user", content: formatState(state) });
     this.trimHistory();
   }
 
+  // Anthropic's API requires every tool_use (assistant) message to be
+  // immediately followed by its tool_result (user) message. Cutting at a
+  // raw message-count boundary could land between such a pair and orphan
+  // one half. So the cut point only ever advances to the next state
+  // observation -- a plain-text user message that never has a tool_use
+  // before it -- which is always a safe place to start the retained slice.
   trimHistory() {
-    if (this.messages.length > MAX_HISTORY_MESSAGES) {
-      this.messages = this.messages.slice(this.messages.length - MAX_HISTORY_MESSAGES);
+    if (this.messages.length <= MAX_HISTORY_MESSAGES) return;
+    let cut = this.messages.length - MAX_HISTORY_MESSAGES;
+    while (cut < this.messages.length && !isStateObservation(this.messages[cut])) {
+      cut += 1;
     }
+    // No safe boundary ahead -- better to exceed the target size for now
+    // than to either wipe the whole history or split a pair.
+    if (cut >= this.messages.length) return;
+    this.messages = this.messages.slice(cut);
   }
 
   async step() {
@@ -112,6 +139,7 @@ class Agent {
   }
 
   async run() {
+    this.bot.on("entityDead", (entity) => this.checkVictory(entity));
     this.pushStateObservation();
     let steps = 0;
     while (!this.won && !this.stopped && steps < this.maxSteps) {

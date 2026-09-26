@@ -15,6 +15,7 @@ function makeFakeBot() {
     food: 20,
     inventory: { items: () => [] },
     entities: {},
+    on: () => {},
   };
 }
 
@@ -77,4 +78,61 @@ test("Agent.run stops early once declareVictory is called", async () => {
 
   assert.equal(result.steps, 1);
   assert.equal(result.won, true);
+});
+
+test("checkVictory declares victory only for the Ender Dragon", () => {
+  const agent = new Agent({ bot: makeFakeBot(), client: makeFakeClient(async () => ({ content: [] })) });
+
+  agent.checkVictory({ name: "zombie" });
+  assert.equal(agent.won, false);
+
+  agent.checkVictory({ name: "ender_dragon" });
+  assert.equal(agent.won, true);
+});
+
+test("run() registers checkVictory on the bot's entityDead event", async () => {
+  let registeredHandler = null;
+  const bot = makeFakeBot();
+  bot.on = (event, handler) => {
+    if (event === "entityDead") registeredHandler = handler;
+  };
+
+  const client = makeFakeClient(async () => ({ content: [] }));
+  const agent = new Agent({ bot, client, maxSteps: 1 });
+  await agent.run();
+
+  assert.ok(registeredHandler, "expected an entityDead handler to be registered");
+  registeredHandler({ name: "ender_dragon" });
+  assert.equal(agent.won, true);
+});
+
+test("trimHistory only cuts at a safe boundary, never splitting a tool_use/tool_result pair", async () => {
+  // Every 4th response is plain text (triggering a fresh state observation,
+  // a safe cut boundary); the rest call a tool (producing a tool_use +
+  // tool_result pair that must never be split by trimming).
+  let call = 0;
+  const client = makeFakeClient(async () => {
+    call += 1;
+    if (call % 4 === 0) {
+      return { content: [{ type: "text", text: "reassessing" }] };
+    }
+    return {
+      content: [{ type: "tool_use", id: `call_${call}`, name: "report_status", input: { message: "x" } }],
+    };
+  });
+
+  const agent = new Agent({ bot: makeFakeBot(), client, maxSteps: 40 });
+  await agent.run();
+
+  assert.ok(agent.messages.length > 0, "history should never be wiped out entirely");
+  for (let i = 0; i < agent.messages.length; i++) {
+    const message = agent.messages[i];
+    const isToolResult = Array.isArray(message.content) && message.content[0]?.type === "tool_result";
+    if (isToolResult) {
+      assert.ok(i > 0, "a tool_result should never be the first retained message");
+      const prev = agent.messages[i - 1];
+      const prevIsToolUse = Array.isArray(prev.content) && prev.content.some((b) => b.type === "tool_use");
+      assert.ok(prevIsToolUse, "every retained tool_result must be preceded by its tool_use");
+    }
+  }
 });

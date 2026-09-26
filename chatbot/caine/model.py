@@ -53,14 +53,16 @@ class CharRNN:
 
         self.hprev = np.zeros((hidden_size, 1))
 
+    def _step(self, ix, h):
+        """One RNN step given a character index (implicitly one-hot)."""
+        return np.tanh(self.Wxh[:, ix, None] + self.Whh @ h + self.bh)
+
     def _loss_and_grads(self, inputs, targets, hprev):
-        xs, hs, ps = {}, {}, {}
+        hs, ps = {}, {}
         hs[-1] = np.copy(hprev)
         loss = 0.0
         for t, ix in enumerate(inputs):
-            xs[t] = np.zeros((self.vocab_size, 1))
-            xs[t][ix] = 1
-            hs[t] = np.tanh(self.Wxh @ xs[t] + self.Whh @ hs[t - 1] + self.bh)
+            hs[t] = self._step(ix, hs[t - 1])
             y = self.Why @ hs[t] + self.by
             exp = np.exp(y - np.max(y))
             ps[t] = exp / np.sum(exp)
@@ -81,7 +83,7 @@ class CharRNN:
             dh = self.Why.T @ dy + dhnext
             dhraw = (1 - hs[t] * hs[t]) * dh
             dbh += dhraw
-            dWxh += dhraw @ xs[t].T
+            dWxh[:, inputs[t]] += dhraw.ravel()
             dWhh += dhraw @ hs[t - 1].T
             dhnext = self.Whh.T @ dhraw
 
@@ -132,18 +134,14 @@ class CharRNN:
 
         if prompt:
             for c in prompt[:-1]:
-                x = np.zeros((self.vocab_size, 1))
-                x[CHAR_TO_IX.get(c, CHAR_TO_IX[UNK])] = 1
-                h = np.tanh(self.Wxh @ x + self.Whh @ h + self.bh)
+                h = self._step(CHAR_TO_IX.get(c, CHAR_TO_IX[UNK]), h)
             ix = CHAR_TO_IX.get(prompt[-1], CHAR_TO_IX[UNK])
         else:
             ix = int(rng.integers(self.vocab_size))
 
         out_ix = []
         for _ in range(length):
-            x = np.zeros((self.vocab_size, 1))
-            x[ix] = 1
-            h = np.tanh(self.Wxh @ x + self.Whh @ h + self.bh)
+            h = self._step(ix, h)
             y = self.Why @ h + self.by
             y = y / max(temperature, 1e-3)
             exp = np.exp(y - np.max(y))
@@ -153,20 +151,13 @@ class CharRNN:
 
         return decode(out_ix)
 
+    _STATE_ARRAYS = ("Wxh", "Whh", "Why", "bh", "by", "mWxh", "mWhh", "mWhy", "mbh", "mby", "hprev")
+
     def save(self, path):
+        arrays = {name: getattr(self, name) for name in self._STATE_ARRAYS}
         np.savez(
             path,
-            Wxh=self.Wxh,
-            Whh=self.Whh,
-            Why=self.Why,
-            bh=self.bh,
-            by=self.by,
-            mWxh=self.mWxh,
-            mWhh=self.mWhh,
-            mWhy=self.mWhy,
-            mbh=self.mbh,
-            mby=self.mby,
-            hprev=self.hprev,
+            **arrays,
             hidden_size=self.hidden_size,
             seq_len=self.seq_len,
             learning_rate=self.learning_rate,
@@ -180,18 +171,6 @@ class CharRNN:
             seq_len=int(data["seq_len"]),
             learning_rate=float(data["learning_rate"]),
         )
-        for name in (
-            "Wxh",
-            "Whh",
-            "Why",
-            "bh",
-            "by",
-            "mWxh",
-            "mWhh",
-            "mWhy",
-            "mbh",
-            "mby",
-            "hprev",
-        ):
+        for name in cls._STATE_ARRAYS:
             setattr(model, name, data[name])
         return model

@@ -1,6 +1,7 @@
 "use strict";
 
 const { goals } = require("mineflayer-pathfinder");
+const { Vec3 } = require("vec3");
 
 /**
  * Tool definitions in Anthropic Messages API tool-use format. This is the
@@ -152,20 +153,15 @@ const TOOL_DEFINITIONS = [
 ];
 
 function findNearestEntityByName(bot, name) {
-  const position = bot.entity.position;
-  let nearest = null;
-  let nearestDist = Infinity;
-  for (const entity of Object.values(bot.entities)) {
-    if (entity === bot.entity || !entity.position) continue;
-    const entityName = entity.name || entity.username || entity.displayName;
-    if (entityName !== name) continue;
-    const dist = entity.position.distanceTo(position);
-    if (dist < nearestDist) {
-      nearest = entity;
-      nearestDist = dist;
-    }
-  }
-  return nearest;
+  return bot.nearestEntity(
+    (entity) => (entity.name || entity.username || entity.displayName) === name
+  );
+}
+
+function findInventoryItem(bot, name) {
+  const item = bot.inventory.items().find((i) => i.name === name);
+  if (!item) throw new Error(`Don't have '${name}' in inventory.`);
+  return item;
 }
 
 async function attackUntilDeadOrTimeout(bot, entity, timeoutMs = 30000) {
@@ -207,8 +203,7 @@ async function executeTool(bot, name, args) {
 
     case "craft_item": {
       const count = args.count || 1;
-      const mcData = require("minecraft-data")(bot.version);
-      const itemData = mcData.itemsByName[args.item];
+      const itemData = bot.registry.itemsByName[args.item];
       if (!itemData) throw new Error(`Unknown item '${args.item}'.`);
 
       let craftingTable = bot.findBlock({
@@ -224,6 +219,7 @@ async function executeTool(bot, name, args) {
     }
 
     case "smelt_item": {
+      const count = args.count || 1;
       const furnaceBlock = bot.findBlock({
         matching: (block) => block.name === "furnace",
         maxDistance: 16,
@@ -231,33 +227,35 @@ async function executeTool(bot, name, args) {
       if (!furnaceBlock) throw new Error("No furnace found within range.");
 
       const furnace = await bot.openFurnace(furnaceBlock);
-      const inputItem = bot.inventory.items().find((i) => i.name === args.item);
-      const fuelItem = bot.inventory.items().find((i) => i.name === args.fuel);
-      if (!inputItem) throw new Error(`Don't have any '${args.item}' to smelt.`);
-      if (!fuelItem) throw new Error(`Don't have any '${args.fuel}' to use as fuel.`);
+      const inputItem = findInventoryItem(bot, args.item);
+      const fuelItem = findInventoryItem(bot, args.fuel);
 
-      await furnace.putFuel(fuelItem.type, null, Math.min(args.count || 1, fuelItem.count));
-      await furnace.putInput(inputItem.type, null, Math.min(args.count || 1, inputItem.count));
-      await new Promise((resolve) => setTimeout(resolve, (args.count || 1) * 10000));
-      const output = await furnace.takeOutput();
+      await furnace.putFuel(fuelItem.type, null, Math.min(count, fuelItem.count));
+      await furnace.putInput(inputItem.type, null, Math.min(count, inputItem.count));
+
+      const pollIntervalMs = 1000;
+      const deadline = Date.now() + count * 15000;
+      let output = furnace.outputItem();
+      while ((!output || output.count < count) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        output = furnace.outputItem();
+      }
+      const taken = await furnace.takeOutput();
       furnace.close();
-      return output
-        ? `Smelted and collected ${output.count}x ${output.name}.`
+      return taken
+        ? `Smelted and collected ${taken.count}x ${taken.name}.`
         : `Waited on the furnace but no output was ready yet.`;
     }
 
     case "equip_item": {
-      const item = bot.inventory.items().find((i) => i.name === args.item);
-      if (!item) throw new Error(`Don't have '${args.item}' in inventory.`);
+      const item = findInventoryItem(bot, args.item);
       await bot.equip(item, args.destination || "hand");
       return `Equipped ${args.item} to ${args.destination || "hand"}.`;
     }
 
     case "place_block": {
-      const item = bot.inventory.items().find((i) => i.name === args.block);
-      if (!item) throw new Error(`Don't have '${args.block}' in inventory.`);
+      const item = findInventoryItem(bot, args.block);
       await bot.equip(item, "hand");
-      const { Vec3 } = require("vec3");
       const targetPos = new Vec3(args.x, args.y - 1, args.z);
       const referenceBlock = bot.blockAt(targetPos);
       if (!referenceBlock) throw new Error(`No reference block below (${args.x}, ${args.y}, ${args.z}).`);
@@ -266,7 +264,6 @@ async function executeTool(bot, name, args) {
     }
 
     case "use_item_on_block": {
-      const { Vec3 } = require("vec3");
       const block = bot.blockAt(new Vec3(args.x, args.y, args.z));
       if (!block) throw new Error(`No block found at (${args.x}, ${args.y}, ${args.z}).`);
       await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true);
@@ -284,8 +281,7 @@ async function executeTool(bot, name, args) {
     }
 
     case "throw_item": {
-      const item = bot.inventory.items().find((i) => i.name === args.item);
-      if (!item) throw new Error(`Don't have '${args.item}' in inventory.`);
+      const item = findInventoryItem(bot, args.item);
       await bot.equip(item, "hand");
       bot.activateItem();
       return `Threw/used ${args.item}.`;
@@ -306,4 +302,4 @@ async function executeTool(bot, name, args) {
   }
 }
 
-module.exports = { TOOL_DEFINITIONS, executeTool, findNearestEntityByName };
+module.exports = { TOOL_DEFINITIONS, executeTool, findNearestEntityByName, findInventoryItem };

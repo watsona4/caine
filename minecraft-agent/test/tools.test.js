@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { TOOL_DEFINITIONS, executeTool, findNearestEntityByName } = require("../src/tools");
+const { TOOL_DEFINITIONS, executeTool, findNearestEntityByName, findInventoryItem } = require("../src/tools");
 
 test("every tool definition has a name, description, and valid-looking schema", () => {
   assert.ok(TOOL_DEFINITIONS.length > 0);
@@ -38,25 +38,51 @@ function makeFakeEntity(name, x) {
   };
 }
 
-test("findNearestEntityByName returns the closest match by name", () => {
-  const bot = {
-    entity: { position: { x: 0 } },
-    entities: {
-      a: makeFakeEntity("zombie", 10),
-      b: makeFakeEntity("zombie", 3),
-      c: makeFakeEntity("skeleton", 1),
-    },
-  };
+// Mirrors mineflayer's own bot.nearestEntity(match) contract (see
+// mineflayer/lib/plugins/entities.js) closely enough to unit-test that our
+// adapter passes the right filter through, without needing a real bot.
+function makeFakeBot(entities) {
+  const bot = { entities };
+  bot.entity = { position: { x: 0 } };
   bot.entities.self = bot.entity;
+  bot.nearestEntity = (match = () => true) => {
+    let best = null;
+    let bestDist = Infinity;
+    for (const entity of Object.values(bot.entities)) {
+      if (entity === bot.entity || !match(entity)) continue;
+      const dist = entity.position.distanceTo(bot.entity.position);
+      if (dist < bestDist) {
+        best = entity;
+        bestDist = dist;
+      }
+    }
+    return best;
+  };
+  return bot;
+}
+
+test("findNearestEntityByName returns the closest match by name", () => {
+  const bot = makeFakeBot({
+    a: makeFakeEntity("zombie", 10),
+    b: makeFakeEntity("zombie", 3),
+    c: makeFakeEntity("skeleton", 1),
+  });
 
   const nearest = findNearestEntityByName(bot, "zombie");
   assert.equal(nearest.position.distanceTo(bot.entity.position), 3);
 });
 
 test("findNearestEntityByName returns null when nothing matches", () => {
-  const bot = {
-    entity: { position: { x: 0 } },
-    entities: { a: makeFakeEntity("cow", 5) },
-  };
+  const bot = makeFakeBot({ a: makeFakeEntity("cow", 5) });
   assert.equal(findNearestEntityByName(bot, "zombie"), null);
+});
+
+test("findInventoryItem returns the matching item", () => {
+  const bot = { inventory: { items: () => [{ name: "oak_log", count: 3 }] } };
+  assert.equal(findInventoryItem(bot, "oak_log").count, 3);
+});
+
+test("findInventoryItem throws when the item is missing", () => {
+  const bot = { inventory: { items: () => [] } };
+  assert.throws(() => findInventoryItem(bot, "diamond"), /Don't have 'diamond'/);
 });
